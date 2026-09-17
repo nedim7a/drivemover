@@ -1,55 +1,85 @@
 import streamlit as st
+from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+import os
+
+# Allow OAuth over HTTPS
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '0'
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
-st.set_page_config(page_title="Google Drive File Mover", page_icon="🔒", layout="centered")
+st.set_page_config(page_title="Google Drive File Mover", page_icon="📁", layout="centered")
 
-# --- Simple Password Authentication ---
-st.title("🔒 Restricted Access: Drive Mover")
+st.title("📁 Google Drive File Mover (Multi-User)")
+st.write("Log in with your Google account to manage and transfer files in your own Google Drive.")
 
-# Set your chosen password here (or store it securely in Streamlit secrets later)
-APP_PASSWORD = st.secrets.get("app_password", "my_secret_password_123")
+def get_oauth_flow():
+    client_config = {
+        "web": {
+            "client_id": st.secrets["google_credentials"]["client_id"],
+            "client_secret": st.secrets["google_credentials"]["client_secret"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": ["https://7adrivemover.streamlit.app"]
+        }
+    }
+    return Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri="https://7adrivemover.streamlit.app")
 
-def check_password():
-    """Returns True if the user entered the correct password."""
-    if "authenticated" not in st.session_state:
-        st.session_state["authenticated"] = False
+# --- Authentication State Handling ---
+if "credentials" not in st.session_state:
+    st.session_state["credentials"] = None
 
-    if st.session_state["authenticated"]:
-        return True
+# Handle redirect from Google OAuth
+query_params = st.query_params
+if "code" in query_params and not st.session_state["credentials"]:
+    try:
+        flow = get_oauth_flow()
+        flow.fetch_token(code=query_params["code"])
+        st.session_state["credentials"] = flow.credentials
+        st.query_params.clear()
+        st.rerun()
+    except Exception as e:
+        st.error(f"Authentication failed: {e}")
 
-    password_input = st.text_input("Enter App Password to Access:", type="password")
-    if st.button("Log In"):
-        if password_input == APP_PASSWORD:
-            st.session_state["authenticated"] = True
-            st.rerun()
-        else:
-            st.error("❌ Incorrect password. Access denied.")
-    return False
-
-if not check_password():
+# If not logged in, show the Google Sign-in button
+if not st.session_state["credentials"]:
+    flow = get_oauth_flow()
+    auth_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
+    
+    st.markdown("### 🔐 Authentication Required")
+    st.write("Click below to sign in with your Google account and access your personal Drive.")
+    st.markdown(
+        f'<a href="{auth_url}" target="_self">'
+        f'<button style="background-color:#4285F4; color:white; padding:10px 24px; border:none; border-radius:6px; font-size:16px; font-weight:600; cursor:pointer;">'
+        f'Sign in with Google</button></a>',
+        unsafe_allow_html=True
+    )
+    
+    st.info("💡 *Note: Because this is an internal application, Google may display a standard 'Unverified app' notice. Click **Advanced** ➔ **Go to Drive Mover (unsafe)** to proceed.*")
     st.stop()
 
-# --- Main App (Only loads after correct password) ---
-st.set_page_config(page_title="Google Drive File Mover", page_icon="📁", layout="centered")
-st.title("📁 Google Drive File Mover (Batch & Search)")
-st.write("Manage, search, and transfer files across your Google Drive seamlessly.")
-
+# --- Main Application (Runs for the logged-in user) ---
 try:
     creds = Credentials(
-        token=st.secrets.get("google_token", {}).get("token"),
-        refresh_token=st.secrets.get("google_token", {}).get("refresh_token"),
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=st.secrets["google_credentials"]["client_id"],
-        client_secret=st.secrets["google_credentials"]["client_secret"],
-        scopes=SCOPES
+        token=st.session_state["credentials"].token,
+        refresh_token=st.session_state["credentials"].refresh_token,
+        token_uri=st.session_state["credentials"].token_uri,
+        client_id=st.session_state["credentials"].client_id,
+        client_secret=st.session_state["credentials"].client_secret,
+        scopes=st.session_state["credentials"].scopes
     )
     service = build('drive', 'v3', credentials=creds)
-    st.success("Successfully connected to Google Drive!")
     
-    # Target Folder Input with Name Verification
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.success("Successfully connected to your Google Drive!")
+    with col2:
+        if st.button("Log Out"):
+            st.session_state["credentials"] = None
+            st.rerun()
+
+    # Target Folder Input
     st.markdown("### 🎯 Target Destination")
     target_folder_id = st.text_input("Enter the Target Folder ID:")
     
@@ -61,7 +91,7 @@ try:
             else:
                 st.warning("⚠️ The provided ID belongs to a file, not a folder.")
         except Exception:
-            st.error("❌ Could not find a folder with that ID. Please check and re-enter.")
+            st.error("❌ Could not find a folder with that ID in your Drive. Please check and re-enter.")
 
     st.markdown("---")
     mode = st.radio("Choose Action Mode:", ["Move by File ID (or Picker)", "Search & Move by Name"])
@@ -158,4 +188,7 @@ try:
                     st.error("Please enter a Target Folder ID before executing batch transfers.")
 
 except Exception as e:
-    st.error(f"An error occurred: {e}")
+    st.error(f"An error occurred or session expired: {e}")
+    if st.button("Re-authenticate"):
+        st.session_state["credentials"] = None
+        st.rerun()
