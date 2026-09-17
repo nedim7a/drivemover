@@ -1,51 +1,43 @@
 import streamlit as st
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-import json
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
-st.set_page_config(page_title="Google Drive File Mover", page_icon="📁", layout="centered")
+st.set_page_config(page_title="Google Drive File Mover", page_icon="🔒", layout="centered")
 
+# --- Simple Password Authentication ---
+st.title("🔒 Restricted Access: Drive Mover")
+
+# Set your chosen password here (or store it securely in Streamlit secrets later)
+APP_PASSWORD = st.secrets.get("app_password", "my_secret_password_123")
+
+def check_password():
+    """Returns True if the user entered the correct password."""
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+
+    if st.session_state["authenticated"]:
+        return True
+
+    password_input = st.text_input("Enter App Password to Access:", type="password")
+    if st.button("Log In"):
+        if password_input == APP_PASSWORD:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("❌ Incorrect password. Access denied.")
+    return False
+
+if not check_password():
+    st.stop()
+
+# --- Main App (Only loads after correct password) ---
+st.set_page_config(page_title="Google Drive File Mover", page_icon="📁", layout="centered")
 st.title("📁 Google Drive File Mover (Batch & Search)")
 st.write("Manage, search, and transfer files across your Google Drive seamlessly.")
 
-def get_drive_service():
-    if "google_credentials" in st.secrets:
-        # Reconstruct client config dictionary from secrets
-        client_config = {
-            "installed": {
-                "client_id": st.secrets["google_credentials"]["client_id"],
-                "client_secret": st.secrets["google_credentials"]["client_secret"],
-                "project_id": st.secrets["google_credentials"]["project_id"],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": ["http://localhost"]
-            }
-        }
-        # For cloud deployment where we want automated token handling:
-        # Let's use service or standard client flow credentials
-        creds = None
-        if "google_token" in st.secrets:
-            token_data = dict(st.secrets["google_token"])
-            creds = Credentials.from_authorized_user_info(token_data, SCOPES)
-        
-        if not creds or not creds.valid:
-            # Fallback build using client secrets if available
-            flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
-            # Note: On cloud without interactive login, we rely on having a valid token saved.
-            # Let's check if we can build directly from client_config or prompt user.
-            pass
-        
-        # Let's initialize drive service directly with client config if needed or token
-        return build('drive', 'v3', credentials=creds)
-    else:
-        st.error("Missing Google credentials in Streamlit Secrets!")
-        st.stop()
-
 try:
-    # Simplified direct service connection for stability
     creds = Credentials(
         token=st.secrets.get("google_token", {}).get("token"),
         refresh_token=st.secrets.get("google_token", {}).get("refresh_token"),
@@ -133,34 +125,35 @@ try:
                     files_to_move = st.session_state['found_files']
                     total_files = len(files_to_move)
                     
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    success_count = 0
-                    for i, f in enumerate(files_to_move):
-                        file_id = f['id']
-                        file_name = f['name']
-                        status_text.text(f"Moving ({i+1}/{total_files}): {file_name}...")
+                    if total_files > 0:
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
                         
-                        try:
-                            file_data = service.files().get(fileId=file_id, fields='parents').execute()
-                            previous_parents = ",".join(file_data.get('parents', []))
+                        success_count = 0
+                        for i, f in enumerate(files_to_move):
+                            file_id = f['id']
+                            file_name = f['name']
+                            status_text.text(f"Moving ({i+1}/{total_files}): {file_name}...")
                             
-                            service.files().update(
-                                fileId=file_id,
-                                addParents=target_folder_id,
-                                removeParents=previous_parents,
-                                fields='id, parents'
-                            ).execute()
-                            success_count += 1
-                        except Exception as err:
-                            st.error(f"Failed to move {file_name}: {err}")
+                            try:
+                                file_data = service.files().get(fileId=file_id, fields='parents').execute()
+                                previous_parents = ",".join(file_data.get('parents', []))
+                                
+                                service.files().update(
+                                    fileId=file_id,
+                                    addParents=target_folder_id,
+                                    removeParents=previous_parents,
+                                    fields='id, parents'
+                                ).execute()
+                                success_count += 1
+                            except Exception as err:
+                                st.error(f"Failed to move {file_name}: {err}")
+                                
+                            progress_bar.progress((i + 1) / total_files)
                             
-                        progress_bar.progress((i + 1) / total_files)
-                        
-                    status_text.text("Transfer complete!")
-                    st.success(f"🎉 Successfully transferred {success_count} of {total_files} file(s)!")
-                    del st.session_state['found_files']
+                        status_text.text("Transfer complete!")
+                        st.success(f"🎉 Successfully transferred {success_count} of {total_files} file(s)!")
+                        del st.session_state['found_files']
                 else:
                     st.error("Please enter a Target Folder ID before executing batch transfers.")
 
