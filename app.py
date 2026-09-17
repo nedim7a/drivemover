@@ -178,7 +178,7 @@ try:
                                 success_count += 1
                             except Exception as err:
                                 st.error(f"Failed to move {file_name}: {err}")
-                                
+                            
                             progress_bar.progress((i + 1) / total_files)
                             
                         status_text.text("Transfer complete!")
