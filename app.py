@@ -29,14 +29,19 @@ def get_oauth_flow():
 # --- Authentication State Handling ---
 if "credentials" not in st.session_state:
     st.session_state["credentials"] = None
+if "oauth_flow" not in st.session_state:
+    st.session_state["oauth_flow"] = None
 
 # Handle redirect from Google OAuth
 query_params = st.query_params
 if "code" in query_params and not st.session_state["credentials"]:
     try:
-        flow = get_oauth_flow()
+        # Reuse the SAME Flow instance that generated the auth URL, so its
+        # PKCE code_verifier is available when exchanging the code.
+        flow = st.session_state["oauth_flow"] or get_oauth_flow()
         flow.fetch_token(code=query_params["code"])
         st.session_state["credentials"] = flow.credentials
+        st.session_state["oauth_flow"] = None
         st.query_params.clear()
         st.rerun()
     except Exception as e:
@@ -44,7 +49,9 @@ if "code" in query_params and not st.session_state["credentials"]:
 
 # If not logged in, show the Google Sign-in button
 if not st.session_state["credentials"]:
-    flow = get_oauth_flow()
+    if st.session_state["oauth_flow"] is None:
+        st.session_state["oauth_flow"] = get_oauth_flow()
+    flow = st.session_state["oauth_flow"]
     auth_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
 
     st.markdown("### 🔐 Authentication Required")
