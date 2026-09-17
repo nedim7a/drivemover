@@ -24,7 +24,12 @@ def get_oauth_flow():
             "redirect_uris": ["https://7adrivemover.streamlit.app"]
         }
     }
-    return Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri="https://7adrivemover.streamlit.app")
+    return Flow.from_client_config(
+        client_config,
+        scopes=SCOPES,
+        redirect_uri="https://7adrivemover.streamlit.app",
+        autogenerate_code_verifier=False
+    )
 
 # --- Authentication State Handling ---
 if "credentials" not in st.session_state:
