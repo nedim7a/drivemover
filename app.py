@@ -49,12 +49,7 @@ if not st.session_state["credentials"]:
 
     st.markdown("### 🔐 Authentication Required")
     st.write("Click below to sign in with your Google account and access your personal Drive.")
-    st.markdown(
-        f'<a href="{auth_url}" target="_top">'
-        f'<button style="background-color:#4285F4; color:white; padding:10px 24px; border:none; border-radius:6px; font-size:16px; font-weight:600; cursor:pointer;">'
-        f'Sign in with Google</button></a>',
-        unsafe_allow_html=True
-    )
+    st.link_button("Sign in with Google", auth_url)
 
     st.info("💡 *Note: Because this is an internal application, Google may display a standard 'Unverified app' notice. Click **Advanced** ➔ **Go to Drive Mover (unsafe)** to proceed.*")
     st.stop()
