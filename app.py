@@ -1,8 +1,6 @@
-import os
 import json
 import streamlit as st
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
@@ -13,28 +11,19 @@ st.write("Search for files by name or move them using a target folder ID.")
 
 def get_drive_service():
     creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    # Check if token data exists in Streamlit Secrets (for cloud deployment)
+    if "google_token" in st.secrets:
+        token_data = dict(st.secrets["google_token"])
+        creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+    
+    # Refresh token if expired
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        
     if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            # Check if we are running on Streamlit Cloud with secrets
-            if "google_credentials" in st.secrets:
-                # Load credentials dictionary directly from Streamlit Secrets
-                client_config = dict(st.secrets["google_credentials"])
-                flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
-            else:
-                # Local fallback for your PC
-                if not os.path.exists('credentials.json'):
-                    st.error("Missing 'credentials.json' or Streamlit secrets configuration!")
-                    st.stop()
-                flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            
-            creds = flow.run_local_server(port=0)
-            
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
+        st.error("Invalid or missing Google token configuration in Streamlit Secrets!")
+        st.stop()
+        
     return build('drive', 'v3', credentials=creds)
 
 try:
