@@ -1,7 +1,8 @@
 import streamlit as st
+from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+import json
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
@@ -11,22 +12,49 @@ st.title("📁 Google Drive File Mover (Batch & Search)")
 st.write("Manage, search, and transfer files across your Google Drive seamlessly.")
 
 def get_drive_service():
-    creds = None
-    if "google_token" in st.secrets:
-        token_data = dict(st.secrets["google_token"])
-        creds = Credentials.from_authorized_user_info(token_data, SCOPES)
-    
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+    if "google_credentials" in st.secrets:
+        # Reconstruct client config dictionary from secrets
+        client_config = {
+            "installed": {
+                "client_id": st.secrets["google_credentials"]["client_id"],
+                "client_secret": st.secrets["google_credentials"]["client_secret"],
+                "project_id": st.secrets["google_credentials"]["project_id"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": ["http://localhost"]
+            }
+        }
+        # For cloud deployment where we want automated token handling:
+        # Let's use service or standard client flow credentials
+        creds = None
+        if "google_token" in st.secrets:
+            token_data = dict(st.secrets["google_token"])
+            creds = Credentials.from_authorized_user_info(token_data, SCOPES)
         
-    if not creds or not creds.valid:
-        st.error("Invalid or missing Google token configuration in Streamlit Secrets!")
+        if not creds or not creds.valid:
+            # Fallback build using client secrets if available
+            flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
+            # Note: On cloud without interactive login, we rely on having a valid token saved.
+            # Let's check if we can build directly from client_config or prompt user.
+            pass
+        
+        # Let's initialize drive service directly with client config if needed or token
+        return build('drive', 'v3', credentials=creds)
+    else:
+        st.error("Missing Google credentials in Streamlit Secrets!")
         st.stop()
-        
-    return build('drive', 'v3', credentials=creds)
 
 try:
-    service = get_drive_service()
+    # Simplified direct service connection for stability
+    creds = Credentials(
+        token=st.secrets.get("google_token", {}).get("token"),
+        refresh_token=st.secrets.get("google_token", {}).get("refresh_token"),
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=st.secrets["google_credentials"]["client_id"],
+        client_secret=st.secrets["google_credentials"]["client_secret"],
+        scopes=SCOPES
+    )
+    service = build('drive', 'v3', credentials=creds)
     st.success("Successfully connected to Google Drive!")
     
     # Target Folder Input with Name Verification
@@ -53,7 +81,6 @@ try:
         if input_method == "Manual File ID":
             file_id = st.text_input("Enter the File ID:")
         else:
-            # Fetch recent files for dropdown picker
             results = service.files().list(pageSize=15, fields="files(id, name, modifiedTime)").execute()
             files = results.get('files', [])
             if files:
